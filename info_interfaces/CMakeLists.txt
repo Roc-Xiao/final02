@@ -12,9 +12,10 @@ file(GLOB_RECURSE MSG_SRC_ABSOLUTE ${MSG_SRC_DIR}/*.msg)
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
-# uncomment the following section in order to fill in
-# further dependencies manually.
-# find_package(<dependency> REQUIRED)
+find_package(std_msgs REQUIRED)
+
+set(MSG_SRC_DIR ${PROJECT_SOURCE_DIR}/src/msg)
+file(GLOB_RECURSE MSG_SRC_ABSOLUTE ${MSG_SRC_DIR}/*.msg)
 
 set(MSG_SRC "")
 foreach(msg_file ${MSG_SRC_ABSOLUTE})
@@ -22,7 +23,10 @@ foreach(msg_file ${MSG_SRC_ABSOLUTE})
   list(APPEND MSG_SRC ${relative_msg_file})
 endforeach()
 
-rosidl_generate_interfaces(${PROJECT_NAME} ${MSG_SRC})
+rosidl_generate_interfaces(${PROJECT_NAME}
+  ${MSG_SRC}
+  DEPENDENCIES std_msgs
+)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
