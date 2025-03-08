@@ -9,5 +9,4 @@ def generate_launch_description():
             name='game_node',
             output='screen'
         ),
-        # 可以在这里添加其他节点或组件
     ])

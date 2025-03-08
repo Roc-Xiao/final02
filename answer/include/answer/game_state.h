@@ -21,7 +21,8 @@
 
 class GameState {
 public:
-    GameState(std::shared_ptr<rclcpp::Node> node);
+    GameState(){}
+    explicit GameState(std::shared_ptr<rclcpp::Node> node);
 
     // 初始化方法
     void initialize(std::shared_ptr<rclcpp::Node> node);

@@ -16,7 +16,7 @@
 #include "geometry_msgs/msg/pose2_d.hpp"
 #include "example_interfaces/msg/bool.hpp"
 
-class GameNode : public rclcpp::Node {
+class GameNode : public rclcpp::Node{
 public:
     // 修改: 添加接受 rclcpp::NodeOptions 参数的构造函数
     GameNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
@@ -46,7 +46,8 @@ public:
         controller_->setShootPublisher(shoot_pub_); // 设置射击发布器
 
         // 初始化 game_state_
-        game_state_ = std::make_unique<GameState>(shared_from_this());
+        game_state_ = std::make_unique<GameState>();
+        // 构造函数中不能使用 shared_from_this ，在对象构造时，还没有 std::shared_ptr 管理此对象
     }
 
     void initialize() {
@@ -57,6 +58,7 @@ public:
 
 private:
     void robotCallback(const info_interfaces::msg::Robot::SharedPtr msg) {
+        RCLCPP_INFO(this->get_logger(),"Robot received and updated.");
         current_robot_ = *msg;
         game_state_->updateRobot(msg); // 更新 robot_data_
         updateGameLogic();
