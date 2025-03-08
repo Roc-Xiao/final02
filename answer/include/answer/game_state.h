@@ -14,8 +14,10 @@
 #include "info_interfaces/msg/map.h"
 #include "info_interfaces/msg/robot.h"
 #include "info_interfaces/msg/point.h"
+#include "image_processor.h" // 添加: 包含 ImageProcessor 头文件
 #include "path_planner.h"
 #include "robot_controller.h"
+#include <sensor_msgs/msg/image.hpp> // 添加: 包含 sensor_msgs::msg::Image 头文件
 
 class GameState {
 public:
@@ -52,6 +54,7 @@ private:
     std::shared_ptr<rclcpp::Node> node_;
     std::unique_ptr<PathPlanner> path_planner_;
     std::unique_ptr<RobotController> robot_controller_;
+    std::unique_ptr<ImageProcessor> image_processor_; // 添加: 添加 ImageProcessor 成员变量
 
     State current_state_;
     bool game_complete_;
@@ -64,6 +67,8 @@ private:
     std::vector<std::string> password_fragments_; // 修改: 将类型改为 std::vector<std::string>
 
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr password_pub_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_subscription_; // 添加: 声明 image_subscription_ 成员变量
+    rclcpp::Publisher<info_interfaces::msg::Map>::SharedPtr map_publisher_; // 添加: 声明 map_publisher_ 成员变量
 
     void handleState();
     std::vector<info_interfaces::msg::Point> planPath(
@@ -75,6 +80,9 @@ private:
         const info_interfaces::msg::Point& p2);
 
     static constexpr size_t REQUIRED_FRAGMENTS = 2; // 定义 REQUIRED_FRAGMENTS 常量
+
+    // 添加: 图像处理回调函数
+    void imageCallback(const sensor_msgs::msg::Image::SharedPtr msg);
 };
 
 #endif

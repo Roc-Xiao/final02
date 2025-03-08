@@ -1,18 +1,83 @@
 #include "answer/game_state.h"
-#include <std_msgs/msg/string.hpp> // 修改: 确保包含正确的 std_msgs::msg::String
+#include <std_msgs/msg/string.hpp>
 #include <cmath>
+#include <sensor_msgs/msg/image.hpp>
+#include <cv_bridge/cv_bridge.h>
 
 GameState::GameState(std::shared_ptr<rclcpp::Node> node)
     : node_(node),
-      current_state_(State::INIT),
-      game_complete_(false),
-      base_vulnerable_(false) { // 初始化 base_vulnerable_
-    
+      robot_controller_(std::make_unique<RobotController>()),
+      image_processor_(std::make_unique<ImageProcessor>()) {
     // 初始化路径规划器和机器人控制器
-    path_planner_ = std::make_unique<PathPlanner>(256, 128);  // 默认地图大小
     robot_controller_ = std::make_unique<RobotController>(node);
 
     RCLCPP_INFO(node_->get_logger(), "Game state initialized");
+
+    // 添加: 订阅图像话题
+    image_subscription_ = node_->create_subscription<sensor_msgs::msg::Image>(
+        "image", 10, std::bind(&GameState::imageCallback, this, std::placeholders::_1));
+
+    // 添加: 初始化地图发布者
+    map_publisher_ = node_->create_publisher<info_interfaces::msg::Map>("/map", 10);
+}
+
+// 添加: 图像处理回调函数实现
+void GameState::imageCallback(const sensor_msgs::msg::Image::SharedPtr msg) {
+    try {
+        // 将 ROS 图像消息转换为 OpenCV 图像格式
+        cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+        cv::Mat cv_raw_img = cv_ptr->image;
+
+        // 获取图像的宽度和高度
+        int width = cv_raw_img.cols;
+        int height = cv_raw_img.rows;
+
+        // 定义网格数量
+        int grid_rows = 10;
+        int grid_cols = 10;
+
+        // 计算每个网格的实际宽度和高度
+        int grid_width = width / grid_cols;
+        int grid_height = height / grid_rows;
+
+        // 使用颜色阈值对图像进行二值化处理
+        cv::Scalar lower(55, 55, 55);
+        cv::Scalar upper(60, 60, 60);
+        cv::Mat binary;
+        cv::inRange(cv_raw_img, lower, upper, binary);
+
+        // 对二值化后的图像进行形态学操作
+        cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
+        cv::erode(binary, binary, kernel);
+        cv::dilate(binary, binary, kernel);
+
+        // 创建 info_interfaces::msg::Map 消息对象
+        info_interfaces::msg::Map map_msg;
+        map_msg.row = grid_rows;
+        map_msg.col = grid_cols;
+        map_msg.grid_width = grid_width;
+        map_msg.grid_height = grid_height;
+
+        // 根据二值化图像填充地图矩阵
+        map_msg.mat.resize(grid_rows * grid_cols);
+        for (int i = 0; i < grid_rows; ++i) {
+            for (int j = 0; j < grid_cols; ++j) {
+                int x = j * grid_width + grid_width / 2;
+                int y = i * grid_height + grid_height / 2;
+                if (binary.at<uchar>(y, x) == 255) {
+                    map_msg.mat[i * grid_cols + j] = 1; // 墙壁
+                } else {
+                    map_msg.mat[i * grid_cols + j] = 0; // 路径
+                }
+            }
+        }
+
+        // 发布地图消息
+        map_publisher_->publish(map_msg);
+    } catch (cv_bridge::Exception& e) {
+        RCLCPP_ERROR(node_->get_logger(), "cv_bridge exception: %s", e.what());
+        return;
+    }
 }
 
 // 添加初始化方法定义
@@ -21,15 +86,6 @@ void GameState::initialize(std::shared_ptr<rclcpp::Node> node) {
     path_planner_ = std::make_unique<PathPlanner>(256, 128);  // 默认地图大小
     robot_controller_ = std::make_unique<RobotController>(node);
     password_pub_ = node_->create_publisher<std_msgs::msg::String>("/password", 10);
-}
-
-void GameState::updateRobot(const info_interfaces::msg::Robot::SharedPtr msg) {
-    robot_data_ = msg;
-    if (robot_controller_) {
-        robot_controller_->setRobotData(robot_data_); // 设置 robot_data_
-        robot_controller_->update(msg->our_robot);
-    }
-    handleState();
 }
 
 void GameState::updateMap(const info_interfaces::msg::Map::SharedPtr msg) {
@@ -44,6 +100,15 @@ void GameState::updateMap(const info_interfaces::msg::Map::SharedPtr msg) {
 
 void GameState::updateArea(const info_interfaces::msg::Area::SharedPtr msg) {
     area_data_ = msg;
+    handleState();
+}
+
+void GameState::updateRobot(const info_interfaces::msg::Robot::SharedPtr msg) {
+    robot_data_ = msg;
+    if (robot_controller_) {
+        robot_controller_->setRobotData(robot_data_); // 设置 robot_data_
+        robot_controller_->update(msg->our_robot);
+    }
     handleState();
 }
 
