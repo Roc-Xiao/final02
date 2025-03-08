@@ -42,9 +42,9 @@ geometry_msgs::msg::Twist RobotController::moveToTarget(
         
         // 限制旋转角度
         if (std::abs(angle_diff) > ANGLE_TOLERANCE) {
-            cmd_vel.angular.z = ANGULAR_SPEED * angle_diff;
+            cmd_vel.angular.z = ANGULAR_SPEED * angle_diff * VELOCITY_SCALE;
         } else {
-            cmd_vel.linear.x = LINEAR_SPEED;
+            cmd_vel.linear.x = LINEAR_SPEED * VELOCITY_SCALE;
         }
     }
     
@@ -64,7 +64,7 @@ geometry_msgs::msg::Twist RobotController::rotateTurret(
     
     // 限制旋转角度
     if (std::abs(angle_diff) > ANGLE_TOLERANCE) {
-        cmd_vel.angular.z = ANGULAR_SPEED * angle_diff;
+        cmd_vel.angular.z = ANGULAR_SPEED * angle_diff * VELOCITY_SCALE;
     }
     
     return cmd_vel;

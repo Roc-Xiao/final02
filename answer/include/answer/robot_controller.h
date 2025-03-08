@@ -83,6 +83,9 @@ private:
     static constexpr double ANGULAR_SPEED = 1.0; // 角速度
     static constexpr double POSITION_TOLERANCE = 0.1; // 位置容差
 
+    // 添加速度常量
+    static constexpr double VELOCITY_SCALE = 0.5; // 速度常量
+
     // 计算下一个目标点的控制指令
     geometry_msgs::msg::Twist calculateCommand(
         const info_interfaces::msg::Point& current,

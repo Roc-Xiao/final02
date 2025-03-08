@@ -3,6 +3,17 @@
 //
 #include "answer/path_planner.h"
 
+#include <queue>
+#include <unordered_map>
+#include <functional>
+
+// 添加 PointCompare 结构体
+struct PointCompare {
+    bool operator()(const std::pair<double, cv::Point>& a, const std::pair<double, cv::Point>& b) const {
+        return a.first > b.first; // 优先队列按 f 值从小到大排序
+    }
+};
+
 PathPlanner::PathPlanner(uint32_t rows, uint32_t cols)
     : rows_(rows), cols_(cols) {}
 
@@ -14,65 +25,74 @@ std::vector<info_interfaces::msg::Point> PathPlanner::findPath(
     cv::Point start_point(start.x, start.y);
     cv::Point goal_point(goal.x, goal.y);
 
-    // 初始化搜索状态
-    std::stack<SearchState> stack;
-    SearchState initial_state(start_point, rows_ * cols_);
-    initial_state.path.push_back(start_point);
-    stack.push(initial_state);
+    // 使用优先队列存储待探索节点，添加 PointCompare 比较函数
+    std::priority_queue<
+        std::pair<double, cv::Point>,
+        std::vector<std::pair<double, cv::Point>>,
+        PointCompare
+    > open_set;
 
-    // 记录最佳路径
-    std::vector<cv::Point> best_path;
-    double best_cost = std::numeric_limits<double>::infinity();
+    // 记录每个节点的g值（从起点到该节点的实际代价）
+    std::unordered_map<cv::Point, double, PointHash> g_values;
+    g_values[start_point] = 0.0;
 
-    while (!stack.empty()) {
-        SearchState current = stack.top();
-        stack.pop();
+    // 记录每个节点的f值（g值加上启发式代价）
+    std::unordered_map<cv::Point, double, PointHash> f_values;
+    f_values[start_point] = calculateHeuristic(start_point, goal_point);
 
-        // 标记当前位置为已访问
-        current.visited[current.pos.y * cols_ + current.pos.x] = true;
+    // 记录每个节点的父节点
+    std::unordered_map<cv::Point, cv::Point, PointHash> came_from;
 
-        // 检查是否到达目标
-        if (current.pos == goal_point) {
-            double current_cost = current.path.size();
-            if (current_cost < best_cost) {
-                best_cost = current_cost;
-                best_path = current.path;
+    // 将起点加入开放列表
+    open_set.emplace(f_values[start_point], start_point);
+
+    while (!open_set.empty()) {
+        cv::Point current = open_set.top().second;
+        open_set.pop();
+
+        // 如果到达目标点，重建路径并返回
+        if (current == goal_point) {
+            std::vector<cv::Point> path;
+            while (current != start_point) {
+                path.push_back(current);
+                current = came_from[current];
             }
-            continue;
+            path.push_back(start_point);
+            std::reverse(path.begin(), path.end());
+
+            // 转换为ROS消息格式
+            std::vector<info_interfaces::msg::Point> result;
+            for (const auto& p : path) {
+                info_interfaces::msg::Point point;
+                point.x = p.x;
+                point.y = p.y;
+                result.push_back(point);
+            }
+
+            return result;
         }
 
         // 获取相邻点
-        auto neighbors = getNeighbors(current.pos);
+        auto neighbors = getNeighbors(current);
 
-        // 按照到目标点的启发式距离排序邻居节点
-        std::sort(neighbors.begin(), neighbors.end(),
-            [this, goal_point](const cv::Point& a, const cv::Point& b) {
-                return calculateHeuristic(a, goal_point) < calculateHeuristic(b, goal_point);
-            });
+        for (const auto& neighbor : neighbors) {
+            if (!isValid(neighbor, map_data)) continue;
 
-        // 遍历邻居节点
-        for (const auto& next : neighbors) {
-            if (!isValid(next, map_data)) continue;
-            if (current.visited[next.y * cols_ + next.x]) continue;
+            // 计算从起点经过当前节点到邻居节点的代价
+            double tentative_g_value = g_values[current] + 1.0;
 
-            // 创建新的搜索状态
-            SearchState next_state = current;
-            next_state.pos = next;
-            next_state.path.push_back(next);
-            stack.push(next_state);
+            // 如果找到更优路径，更新代价和父节点
+            if (!g_values.count(neighbor) || tentative_g_value < g_values[neighbor]) {
+                came_from[neighbor] = current;
+                g_values[neighbor] = tentative_g_value;
+                f_values[neighbor] = tentative_g_value + calculateHeuristic(neighbor, goal_point);
+                open_set.emplace(f_values[neighbor], neighbor);
+            }
         }
     }
 
-    // 转换为ROS消息格式
-    std::vector<info_interfaces::msg::Point> result;
-    for (const auto& p : best_path) {
-        info_interfaces::msg::Point point;
-        point.x = p.x;
-        point.y = p.y;
-        result.push_back(point);
-    }
-
-    return result;
+    // 如果没有找到路径，返回空路径
+    return std::vector<info_interfaces::msg::Point>();
 }
 
 bool PathPlanner::isValid(const cv::Point& p, const std::vector<uint8_t>& map_data) const {

@@ -9,7 +9,7 @@ GameState::GameState(std::shared_ptr<rclcpp::Node> node)
       base_vulnerable_(false) { // 初始化 base_vulnerable_
     
     // 初始化路径规划器和机器人控制器
-    path_planner_ = std::make_unique<PathPlanner>(800, 600);  // 默认地图大小
+    path_planner_ = std::make_unique<PathPlanner>(256, 128);  // 默认地图大小
     robot_controller_ = std::make_unique<RobotController>(node);
 
     RCLCPP_INFO(node_->get_logger(), "Game state initialized");
@@ -18,7 +18,7 @@ GameState::GameState(std::shared_ptr<rclcpp::Node> node)
 // 添加初始化方法定义
 void GameState::initialize(std::shared_ptr<rclcpp::Node> node) {
     node_ = node;
-    path_planner_ = std::make_unique<PathPlanner>(800, 600);  // 默认地图大小
+    path_planner_ = std::make_unique<PathPlanner>(256, 128);  // 默认地图大小
     robot_controller_ = std::make_unique<RobotController>(node);
     password_pub_ = node_->create_publisher<std_msgs::msg::String>("/password", 10);
 }

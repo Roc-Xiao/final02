@@ -11,6 +11,12 @@
 #include "info_interfaces/msg/point.hpp"
 #include "info_interfaces/msg/map.hpp"
 
+// 添加 PointHash 结构体
+struct PointHash {
+    std::size_t operator()(const cv::Point& p) const {
+        return std::hash<int>()(p.x) ^ (std::hash<int>()(p.y) << 1);
+    }
+};
 
 class PathPlanner {
 public:
@@ -24,16 +30,6 @@ public:
 private:
     uint32_t rows_;
     uint32_t cols_;
-
-    // DFS搜索状态
-    struct SearchState {
-        cv::Point pos;
-        std::vector<cv::Point> path;
-        std::vector<bool> visited;
-
-        SearchState(const cv::Point& p, uint32_t size)
-            : pos(p), visited(size, false) {}
-    };
 
     bool isValid(const cv::Point& p, const std::vector<uint8_t>& map_data) const;
     std::vector<cv::Point> getNeighbors(const cv::Point& p) const;
