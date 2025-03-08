@@ -1,7 +1,7 @@
 //
 // Created by roc on 25-2-25.
 //
-#include "answer/path_planner.hpp"
+#include "answer/path_planner.h"
 
 PathPlanner::PathPlanner(uint32_t rows, uint32_t cols)
     : rows_(rows), cols_(cols) {}
