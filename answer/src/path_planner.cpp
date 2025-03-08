@@ -2,17 +2,10 @@
 // Created by roc on 25-2-25.
 //
 #include "answer/path_planner.h"
-
 #include <queue>
 #include <unordered_map>
-#include <functional>
-
-// 添加 PointCompare 结构体
-struct PointCompare {
-    bool operator()(const std::pair<double, cv::Point>& a, const std::pair<double, cv::Point>& b) const {
-        return a.first > b.first; // 优先队列按 f 值从小到大排序
-    }
-};
+#include <limits>
+#include <cmath> // 添加: 包含 cmath 头文件
 
 PathPlanner::PathPlanner(uint32_t rows, uint32_t cols)
     : rows_(rows), cols_(cols) {}
@@ -22,99 +15,89 @@ std::vector<info_interfaces::msg::Point> PathPlanner::findPath(
     const info_interfaces::msg::Point& goal,
     const std::vector<uint8_t>& map_data) {
 
-    cv::Point start_point(start.x, start.y);
-    cv::Point goal_point(goal.x, goal.y);
-
-    // 使用优先队列存储待探索节点，添加 PointCompare 比较函数
+    // 定义优先队列，使用 PointCompare 作为比较函数
     std::priority_queue<
         std::pair<double, cv::Point>,
         std::vector<std::pair<double, cv::Point>>,
-        PointCompare
-    > open_set;
+        PointCompare> open_set;
 
-    // 记录每个节点的g值（从起点到该节点的实际代价）
-    std::unordered_map<cv::Point, double, PointHash> g_values;
-    g_values[start_point] = 0.0;
-
-    // 记录每个节点的f值（g值加上启发式代价）
-    std::unordered_map<cv::Point, double, PointHash> f_values;
-    f_values[start_point] = calculateHeuristic(start_point, goal_point);
-
-    // 记录每个节点的父节点
+    // 定义成本和前驱映射
+    std::unordered_map<cv::Point, double, PointHash> g_costs;
     std::unordered_map<cv::Point, cv::Point, PointHash> came_from;
 
-    // 将起点加入开放列表
-    open_set.emplace(f_values[start_point], start_point);
+    // 初始化起点
+    cv::Point start_cv(start.x, start.y);
+    cv::Point goal_cv(goal.x, goal.y);
+    open_set.emplace(0, start_cv);
+    g_costs[start_cv] = 0;
 
     while (!open_set.empty()) {
-        cv::Point current = open_set.top().second;
+        auto current = open_set.top().second;
         open_set.pop();
 
-        // 如果到达目标点，重建路径并返回
-        if (current == goal_point) {
-            std::vector<cv::Point> path;
-            while (current != start_point) {
-                path.push_back(current);
+        if (current == goal_cv) {
+            // 重建路径
+            std::vector<info_interfaces::msg::Point> path;
+            while (current != start_cv) {
+                // 修改: 使用 x 和 y 成员变量设置点的坐标
+                info_interfaces::msg::Point point;
+                point.x = static_cast<float>(current.x);
+                point.y = static_cast<float>(current.y);
+                path.emplace_back(point);
                 current = came_from[current];
             }
-            path.push_back(start_point);
+            // 修改: 使用 x 和 y 成员变量设置点的坐标
+            info_interfaces::msg::Point point;
+            point.x = static_cast<float>(start.x);
+            point.y = static_cast<float>(start.y);
+            path.emplace_back(point);
             std::reverse(path.begin(), path.end());
-
-            // 转换为ROS消息格式
-            std::vector<info_interfaces::msg::Point> result;
-            for (const auto& p : path) {
-                info_interfaces::msg::Point point;
-                point.x = p.x;
-                point.y = p.y;
-                result.push_back(point);
-            }
-
-            return result;
+            return path;
         }
 
-        // 获取相邻点
-        auto neighbors = getNeighbors(current);
+        for (const auto& neighbor : getNeighbors(current)) {
+            if (!isValid(neighbor, map_data)) {
+                continue;
+            }
 
-        for (const auto& neighbor : neighbors) {
-            if (!isValid(neighbor, map_data)) continue;
-
-            // 计算从起点经过当前节点到邻居节点的代价
-            double tentative_g_value = g_values[current] + 1.0;
-
-            // 如果找到更优路径，更新代价和父节点
-            if (!g_values.count(neighbor) || tentative_g_value < g_values[neighbor]) {
+            double tentative_g_cost = g_costs[current] + calculateDistance(current, neighbor);
+            if (g_costs.find(neighbor) == g_costs.end() || tentative_g_cost < g_costs[neighbor]) {
                 came_from[neighbor] = current;
-                g_values[neighbor] = tentative_g_value;
-                f_values[neighbor] = tentative_g_value + calculateHeuristic(neighbor, goal_point);
-                open_set.emplace(f_values[neighbor], neighbor);
+                g_costs[neighbor] = tentative_g_cost;
+                double f_cost = tentative_g_cost + calculateHeuristic(neighbor, goal_cv);
+                open_set.emplace(f_cost, neighbor);
             }
         }
     }
 
     // 如果没有找到路径，返回空路径
-    return std::vector<info_interfaces::msg::Point>();
+    return {};
 }
 
 bool PathPlanner::isValid(const cv::Point& p, const std::vector<uint8_t>& map_data) const {
-    if (p.x < 0 || p.x >= static_cast<int>(cols_) ||
-        p.y < 0 || p.y >= static_cast<int>(rows_)) {
+    // 修改: 先检查是否小于0，避免无意义的 unsigned 比较
+    if (p.x < 0 || p.y < 0 || static_cast<uint32_t>(p.x) >= cols_ || static_cast<uint32_t>(p.y) >= rows_) {
         return false;
     }
-    return map_data[p.y * cols_ + p.x] == 0; // 假设0表示可通行
+    return map_data[p.y * cols_ + p.x] == 0; // 假设0表示可通行，1表示障碍物
 }
 
 std::vector<cv::Point> PathPlanner::getNeighbors(const cv::Point& p) const {
     std::vector<cv::Point> neighbors;
-    const int dx[] = {-1, 0, 1, 0};
-    const int dy[] = {0, 1, 0, -1};
-
-    for (int i = 0; i < 4; ++i) {
-        neighbors.emplace_back(p.x + dx[i], p.y + dy[i]);
-    }
-
+    neighbors.emplace_back(p.x + 1, p.y);
+    neighbors.emplace_back(p.x - 1, p.y);
+    neighbors.emplace_back(p.x, p.y + 1);
+    neighbors.emplace_back(p.x, p.y - 1);
     return neighbors;
 }
 
 double PathPlanner::calculateHeuristic(const cv::Point& a, const cv::Point& b) const {
-    return std::sqrt(std::pow(a.x - b.x, 2) + std::pow(a.y - b.y, 2));
+    return std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
+}
+
+// 添加: calculateDistance 函数定义
+double PathPlanner::calculateDistance(const cv::Point& p1, const cv::Point& p2) const {
+    double dx = p1.x - p2.x;
+    double dy = p1.y - p2.y;
+    return std::sqrt(dx * dx + dy * dy);
 }

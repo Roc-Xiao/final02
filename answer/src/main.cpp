@@ -33,12 +33,14 @@ public:
         controller_ = std::make_unique<RobotController>();
         controller_->setPosePublisher(pose_pub_); // 设置位姿发布器
         controller_->setShootPublisher(shoot_pub_); // 设置射击发布器
+
+        // 初始化 game_state_
+        game_state_ = std::make_unique<GameState>(shared_from_this());
     }
 
     void initialize() {
         // 传递 shared_from_this() 给控制器和游戏状态
         controller_->initialize(shared_from_this());
-        game_state_ = std::make_unique<GameState>(shared_from_this()); // 添加: 初始化 game_state_
     }
 
 private:
@@ -55,47 +57,36 @@ private:
 
     void areaCallback(const info_interfaces::msg::Area::SharedPtr msg) {
         game_area_ = *msg;
+        game_state_->updateArea(msg); // 更新 area_data_
     }
 
     void updateGameLogic() {
-        switch (game_state_->getCurrentState()) {
-            case GameState::State::HUNTING_ENEMIES:
-                handleHuntingState();
-                break;
-            case GameState::State::GOTO_PASSWORD_AREA:
-                handleGotoPasswordArea();
-                break;
-            case GameState::State::ATTACKING_BASE:
-                handleAttackingBase();
-                break;
-            default:
-                break;
-        }
-    }
+        if (game_state_->getCurrentState() == GameState::State::SEEKING_SUPPLY) {
+            // SEEKING_SUPPLY时使用A*算法规划路径返回补给点
+            auto path = game_state_->planPath(game_state_->getRobotData()->our_robot, game_state_->getAreaData()->recover);
+            if (!path.empty()) {
+                controller_->setPath(path);
+            }
+        } else if (game_state_->getCurrentState() == GameState::State::HUNTING_ENEMIES) {
+            // HUNTING_ENEMIES时使用A*算法规划路径接近最近的敌人
+            if (!game_state_->getRobotData()->enemy.empty()) {
+                auto nearest_enemy = game_state_->getRobotData()->enemy[0];
+                auto path = game_state_->planPath(game_state_->getRobotData()->our_robot, nearest_enemy);
+                if (!path.empty()) {
+                    controller_->setPath(path);
+                }
 
-    void handleHuntingState() {
-        if (!current_robot_.enemy.empty()) {
-            auto cmd = controller_->moveToTarget(
-                current_robot_.our_robot,
-                current_robot_.enemy[0]);
-            cmd_pub_->publish(cmd);
+                // 检查是否可以射击
+                if (controller_->canShoot(game_state_->getRobotData()->our_robot, nearest_enemy, *game_state_->getMapData())) {
+                    controller_->publishShoot(true);
+                } else {
+                    controller_->publishShoot(false);
+                }
+            }
         }
-    }
 
-    void handleGotoPasswordArea() {
-        auto cmd = controller_->moveToTarget(
-            current_robot_.our_robot,
-            game_area_.password);
-        cmd_pub_->publish(cmd);
-    }
-
-    void handleAttackingBase() {
-        if (game_state_->isBaseVulnerable()) {
-            auto cmd = controller_->moveToTarget(
-                current_robot_.our_robot,
-                game_area_.base);
-            cmd_pub_->publish(cmd);
-        }
+        // 更新机器人位置
+        controller_->update(game_state_->getRobotData()->our_robot);
     }
 
     // 成员变量

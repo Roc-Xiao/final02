@@ -71,6 +71,12 @@ public:
         map_data_ = map_data;
     }
 
+    // 添加 canShoot 函数声明
+    bool canShoot(
+        const info_interfaces::msg::Point& our_pos,
+        const info_interfaces::msg::Point& enemy_pos,
+        const info_interfaces::msg::Map& map);
+
 private:
     std::shared_ptr<rclcpp::Node> node_;
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
@@ -96,13 +102,6 @@ private:
         const info_interfaces::msg::Point& current,
         const info_interfaces::msg::Point& target);
 
-    // 添加 canShoot 函数声明
-    bool canShoot(
-        const info_interfaces::msg::Point& our_pos,
-        const info_interfaces::msg::Point& enemy_pos,
-        const info_interfaces::msg::Map& map,
-        double turret_angle);
-
     // 添加 needResupply 函数声明
     bool needResupply(int current_ammo);
 
@@ -118,6 +117,7 @@ private:
     // 添加 robot_data_ 和 map_data_ 成员变量
     info_interfaces::msg::Robot::SharedPtr robot_data_;
     info_interfaces::msg::Map::SharedPtr map_data_;
+
 };
 
 #endif

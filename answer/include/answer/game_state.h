@@ -31,7 +31,7 @@ public:
     void updateRobot(const info_interfaces::msg::Robot::SharedPtr msg);
     bool isGameComplete() const { return game_complete_; }
 
-public: // 修改: 将 private 改为 public
+public:
     enum class State {
         INIT,
         SEEKING_SUPPLY,
@@ -42,13 +42,22 @@ public: // 修改: 将 private 改为 public
     };
 
     // 添加函数声明
-    void updateState(GameState::State new_state);
+    void updateState(State new_state);
     GameState::State getCurrentState() const;
     void addPasswordFragment(const std::string& fragment);
     bool hasAllPasswordFragments() const;
     std::string getCombinedPassword() const;
     bool isBaseVulnerable() const;
     void setBaseVulnerable(bool vulnerable);
+
+    info_interfaces::msg::Map::SharedPtr getMapData() const { return map_data_; }
+    info_interfaces::msg::Area::SharedPtr getAreaData() const { return area_data_; }
+    info_interfaces::msg::Robot::SharedPtr getRobotData() const { return robot_data_; }
+
+    // 修改: 将 planPath 方法改为 public
+    std::vector<info_interfaces::msg::Point> planPath(
+        const info_interfaces::msg::Point& start,
+        const info_interfaces::msg::Point& goal);
 
 private:
     std::shared_ptr<rclcpp::Node> node_;
@@ -71,9 +80,6 @@ private:
     rclcpp::Publisher<info_interfaces::msg::Map>::SharedPtr map_publisher_; // 添加: 声明 map_publisher_ 成员变量
 
     void handleState();
-    std::vector<info_interfaces::msg::Point> planPath(
-        const info_interfaces::msg::Point& start,
-        const info_interfaces::msg::Point& goal);
 
     double calculateDistance(
         const info_interfaces::msg::Point& p1,

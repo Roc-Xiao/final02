@@ -73,8 +73,7 @@ geometry_msgs::msg::Twist RobotController::rotateTurret(
 bool RobotController::canShoot(
     const info_interfaces::msg::Point& our_pos,
     const info_interfaces::msg::Point& enemy_pos,
-    const info_interfaces::msg::Map& map,
-    double turret_angle) {
+    const info_interfaces::msg::Map& map) {
     
     // 检查距离
     double dx = enemy_pos.x - our_pos.x;
@@ -87,7 +86,9 @@ bool RobotController::canShoot(
     
     // 检查角度
     double target_angle = std::atan2(dy, dx);
-    if (std::abs(target_angle - turret_angle) > ANGLE_TOLERANCE) {
+    double current_angle = std::atan2(our_pos.y, our_pos.x);
+    double angle_diff = target_angle - current_angle;
+    if (std::abs(angle_diff) > ANGLE_TOLERANCE) {
         return false;
     }
     
@@ -172,7 +173,7 @@ void RobotController::update(const info_interfaces::msg::Point& current_pos) {
 
     // 检查是否需要射击
     if (robot_data_ && !robot_data_->enemy.empty()) {
-        bool shoot = canShoot(current_pos, robot_data_->enemy[0], *map_data_, pose.theta);
+        bool shoot = canShoot(current_pos, robot_data_->enemy[0], *map_data_);
         publishShoot(shoot);
     }
 }
