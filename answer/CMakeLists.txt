@@ -49,7 +49,7 @@ ament_target_dependencies(game_node
 # 安装目标
 install(TARGETS
   game_node
-  RUNTIME DESTINATION libexec/${PROJECT_NAME}
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
 # 添加对launch文件的支持
