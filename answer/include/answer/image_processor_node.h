@@ -33,7 +33,7 @@ namespace image_processor {
 
     class ImageProcessorNode : public rclcpp::Node {
     public:
-        ImageProcessorNode(): Node("image_processor_node") {
+        ImageProcessorNode(): Node("image_processor_node"), image_width_(0), image_height_(0) {
             // 订阅图像话题
             image_subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
                 topic_name::image_raw, 10, std::bind(&ImageProcessorNode::imageCallback, this, std::placeholders::_1));
@@ -55,14 +55,10 @@ namespace image_processor {
         std::vector<cv::Point> findColorArea(const cv::Mat& hsv, cv::Scalar lower, cv::Scalar upper, int min_x, int max_x, int min_y, int max_y);
         std::pair<cv::Point, cv::Point> findTeleportPoints(const cv::Mat& hsv, cv::Scalar lower, cv::Scalar upper, int min_x, int max_x, int min_y, int max_y);
 
-        // 添加以下两个方法声明
         info_interfaces::msg::Area processAreas(const cv::Mat& image);
         info_interfaces::msg::Robot processRobots(const cv::Mat& image);
-
-        // 新增方法声明：坐标抽象化
         info_interfaces::msg::Point transformAbstractPoint(const cv::Point& point);
 
-        // 新增方法声明：通用轮廓检测
         std::vector<cv::Point> findContours(const cv::Mat& hsv, cv::Scalar lower, cv::Scalar upper, int min_x, int max_x, int min_y, int max_y);
 
         const cv::Scalar BACE_LOWER{165, 115, 145};
@@ -81,13 +77,15 @@ namespace image_processor {
         const cv::Scalar PASSWORD_UPPER{100, 105, 255};
 
         cv::Mat preprocess(const cv::Mat& image);
-        cv::Mat detectEdges(const cv::Mat& image);
         cv::Mat morphologyProcess(const cv::Mat& image);
 
         rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_subscription_;
         rclcpp::Publisher<info_interfaces::msg::Map>::SharedPtr map_publisher_;
         rclcpp::Publisher<info_interfaces::msg::Area>::SharedPtr area_publisher_;
         rclcpp::Publisher<info_interfaces::msg::Robot>::SharedPtr robot_publisher_;
+
+        uint32_t image_width_;
+        uint32_t image_height_;
     };
 
 } // namespace image_processor

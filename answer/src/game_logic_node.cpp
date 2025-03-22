@@ -5,7 +5,15 @@ namespace game_logic {
 GameLogicNode::GameLogicNode()
     : Node("game_logic_node"),
       rows_(256),
-      cols_(128) {
+      cols_(128),
+      node_(std::make_shared<rclcpp::Node>("game_logic_node")),
+      shoot_pub_(node_->create_publisher<std_msgs::msg::String>(topic_name::shoot, 10)),
+      pose_pub_(node_->create_publisher<geometry_msgs::msg::Pose2D>(topic_name::pose, 10)),
+      password_pub_(node_->create_publisher<std_msgs::msg::String>(topic_name::password, 10)) {
+
+    map_data_ = std::make_shared<info_interfaces::msg::Map>();
+    robot_data_ = std::make_shared<info_interfaces::msg::Robot>();
+    current_area_ = std::make_shared<info_interfaces::msg::Area>();
     // 订阅地图话题
     map_subscription_ = this->create_subscription<info_interfaces::msg::Map>(
         topic_name::map, 10, std::bind(&GameLogicNode::updateMap, this, std::placeholders::_1));
@@ -17,23 +25,59 @@ GameLogicNode::GameLogicNode()
     // 订阅机器人话题
     robot_subscription_ = this->create_subscription<info_interfaces::msg::Robot>(
         topic_name::robot, 10, std::bind(&GameLogicNode::updateRobot, this, std::placeholders::_1));
-
-    // 初始化 pose 话题发布者
-    auto pose_pub = this->create_publisher<geometry_msgs::msg::Pose2D>(topic_name::pose, 10);
-    setPosePublisher(pose_pub);
-
-    // 初始化 shoot 话题发布者
-    auto shoot_pub = this->create_publisher<std_msgs::msg::String>(topic_name::shoot, 10);
-    setShootPublisher(shoot_pub);
-
-    // 初始化密码发布者
-    password_pub_ = this->create_publisher<std_msgs::msg::String>(topic_name::password, 10);
 }
 
-void GameLogicNode::initialize(std::shared_ptr<rclcpp::Node> node) {
-    node_ = node;
-    cmd_vel_pub_ = node_->create_publisher<geometry_msgs::msg::Pose2D>(topic_name::pose, 10);
-    shoot_pub_ = node_->create_publisher<std_msgs::msg::String>(topic_name::shoot, 10);
+void GameLogicNode::updateMap(const info_interfaces::msg::Map::SharedPtr msg) {
+    RCLCPP_INFO(this->get_logger(), "Received map message with grid size: %d x %d", msg->grid_width, msg->grid_height);
+    map_data_ = msg;
+
+    // 根据地图数据构建可通行路径网络
+    buildPathNetwork();
+}
+
+// 添加 buildPathNetwork 方法实现
+void GameLogicNode::buildPathNetwork() {
+    // 使用A*算法构建可通行路径网络
+    path_network_.clear(); // 清空之前的路径网络
+
+    // 获取地图的实际行数和列数
+    rows_ = map_data_->row;
+    cols_ = map_data_->col;
+
+    for (uint32_t i = 0; i < rows_; ++i) {
+        for (uint32_t j = 0; j < cols_; ++j) {
+            addNodeToPathNetwork(i, j);
+        }
+    }
+}
+
+void GameLogicNode::addNodeToPathNetwork(int row, int col) {
+    // 添加节点到路径网络的具体实现
+    // 使用邻接表表示路径网络
+    cv::Point node(col, row);
+
+    if (isValid(node, map_data_->mat)) {
+        std::vector<cv::Point> neighbors = getNeighbors(node);
+        std::vector<cv::Point> valid_neighbors;
+
+        for (const auto& neighbor : neighbors) {
+            if (isValid(neighbor, map_data_->mat)) {
+                valid_neighbors.push_back(neighbor);
+            }
+        }
+
+        path_network_[node] = valid_neighbors; // 将有效的邻居节点添加到路径网络中
+    }
+}
+
+void GameLogicNode::updateArea(const info_interfaces::msg::Area::SharedPtr msg) {
+    RCLCPP_INFO(this->get_logger(), "Received area message with base position: (%u, %u)", msg->base.x, msg->base.y);
+    current_area_ = msg;
+}
+
+void GameLogicNode::updateRobot(const info_interfaces::msg::Robot::SharedPtr msg) {
+    RCLCPP_INFO(this->get_logger(), "Received robot message with our robot position: (%u, %u)", msg->our_robot.x, msg->our_robot.y);
+    robot_data_ = msg;
 }
 
 geometry_msgs::msg::Pose2D GameLogicNode::moveToTarget(
@@ -119,7 +163,7 @@ void GameLogicNode::update(const info_interfaces::msg::Point& current_pos) {
         if ((current_pos.x > target.x ? (current_pos.x - target.x) : (target.x - current_pos.x)) < POSITION_TOLERANCE &&
             (current_pos.y > target.y ? (current_pos.y - target.y) : (target.y - current_pos.y)) < POSITION_TOLERANCE) {
             current_path_index_++;
-            if (static_cast<std::size_t>(current_path_index_) >= current_path_.size()) { // 将 int 转换为 std::size_t
+            if (static_cast<std::size_t>(current_path_index_) >= current_path_.size()) {
                 current_path_.clear();
                 current_path_index_ = 0;
             }
@@ -127,7 +171,7 @@ void GameLogicNode::update(const info_interfaces::msg::Point& current_pos) {
     }
 
     if (canShoot(robot_data_->our_robot, getNearestEnemy(current_pos), *map_data_)) { // 解引用 map_data_
-        publishShoot(true); // 修改: 添加布尔参数 true
+        publishShoot(true);
     }
 }
 
@@ -147,31 +191,13 @@ geometry_msgs::msg::Pose2D GameLogicNode::calculateCommand(
 }
 
 void GameLogicNode::publishPose(const geometry_msgs::msg::Pose2D& cmd_vel) {
-    cmd_vel_pub_->publish(cmd_vel);
+    pose_pub_->publish(cmd_vel);
 }
 
 void GameLogicNode::publishShoot(bool shoot) {
     std_msgs::msg::String msg;
     msg.data = shoot ? "shoot" : "";
     shoot_pub_->publish(msg);
-}
-
-void GameLogicNode::setPosePublisher(rclcpp::Publisher<geometry_msgs::msg::Pose2D>::SharedPtr pub) {
-    cmd_vel_pub_ = pub;
-}
-
-void GameLogicNode::setShootPublisher(rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub) {
-    shoot_pub_ = pub;
-}
-
-void GameLogicNode::setMapData(const info_interfaces::msg::Map::SharedPtr map_data) {
-    // 直接将传入的 shared_ptr 赋值给成员变量
-    map_data_ = map_data;
-}
-
-void GameLogicNode::setRobotData(const info_interfaces::msg::Robot::SharedPtr robot_data) {
-    // 直接将传入的 shared_ptr 赋值给成员变量
-    robot_data_ = robot_data;
 }
 
 info_interfaces::msg::Point GameLogicNode::getNearestEnemy(const info_interfaces::msg::Point& our_pos) {
@@ -191,58 +217,77 @@ std::vector<info_interfaces::msg::Point> GameLogicNode::findPath(
     const info_interfaces::msg::Point& start,
     const info_interfaces::msg::Point& goal,
     const std::vector<uint8_t>& map_data) {
-    if (!isValid(cv::Point(start.x, start.y), map_data) || !isValid(cv::Point(goal.x, goal.y), map_data)) {
-        return {};
-    }
+    return aStarSearch(start, goal, map_data);
+}
 
-    std::priority_queue<
-        std::pair<double, cv::Point>,
-        std::vector<std::pair<double, cv::Point>>,
-        PointCompare> open_set;
+std::vector<info_interfaces::msg::Point> GameLogicNode::aStarSearch(
+    const info_interfaces::msg::Point& start,
+    const info_interfaces::msg::Point& goal,
+    const std::vector<uint8_t>& map_data) {
+    // A*算法的具体实现
+    std::unordered_set<cv::Point, PointHash> closed_set;
+    std::priority_queue<std::pair<double, cv::Point>, std::vector<std::pair<double, cv::Point>>, PointCompare> open_set;
 
-    std::unordered_map<cv::Point, double, PointHash> g_costs;
     std::unordered_map<cv::Point, cv::Point, PointHash> came_from;
+    std::unordered_map<cv::Point, double, PointHash> g_score;
+    std::unordered_map<cv::Point, double, PointHash> f_score;
 
-    cv::Point start_cv(start.x, start.y);
-    cv::Point goal_cv(goal.x, goal.y);
-    open_set.emplace(0, start_cv);
-    g_costs[start_cv] = 0;
+    cv::Point start_point(start.x, start.y);
+    cv::Point goal_point(goal.x, goal.y);
+
+    open_set.push({0.0, start_point});
+    g_score[start_point] = 0.0;
+    f_score[start_point] = calculateHeuristic(start_point, goal_point);
 
     while (!open_set.empty()) {
         auto current = open_set.top().second;
         open_set.pop();
 
-        if (current == goal_cv) {
-            std::vector<info_interfaces::msg::Point> path;
-            while (current != start_cv) {
-                info_interfaces::msg::Point point;
-                point.x = static_cast<float>(current.x);
-                point.y = static_cast<float>(current.y);
-                path.emplace_back(point);
-                current = came_from[current];
-            }
-            // 修改: 直接赋值 x 和 y 字段，而不是使用花括号初始化列表
-            info_interfaces::msg::Point start_point;
-            start_point.x = start.x;
-            start_point.y = start.y;
-            path.push_back(start_point);
-            std::reverse(path.begin(), path.end());
-            return path;
+        if (current == goal_point) {
+            return reconstructPath(came_from, start_point, goal_point);
         }
 
-        for (const auto& neighbor : getNeighbors(current)) {
-            if (!isValid(neighbor, map_data)) continue;
+        closed_set.insert(current);
 
-            double tentative_g_cost = g_costs[current] + calculateDistance(current, neighbor);
-            if (g_costs.find(neighbor) == g_costs.end() || tentative_g_cost < g_costs[neighbor]) {
+        for (const auto& neighbor : getNeighbors(current)) {
+            if (!isValid(neighbor, map_data) || closed_set.find(neighbor) != closed_set.end()) {
+                continue;
+            }
+
+            double tentative_g_score = g_score[current] + calculateDistance(current, neighbor);
+            if (g_score.find(neighbor) == g_score.end() || tentative_g_score < g_score[neighbor]) {
                 came_from[neighbor] = current;
-                g_costs[neighbor] = tentative_g_cost;
-                double f_cost = tentative_g_cost + calculateHeuristic(neighbor, goal_cv);
-                open_set.emplace(f_cost, neighbor);
+                g_score[neighbor] = tentative_g_score;
+                f_score[neighbor] = tentative_g_score + calculateHeuristic(neighbor, goal_point);
+                open_set.push({f_score[neighbor], neighbor});
             }
         }
     }
-    return {};
+
+    return {}; // 如果没有找到路径，返回空向量
+}
+
+std::vector<info_interfaces::msg::Point> GameLogicNode::reconstructPath(
+    const std::unordered_map<cv::Point, cv::Point, PointHash>& came_from,
+    const cv::Point& start,
+    const cv::Point& goal) {
+    std::vector<info_interfaces::msg::Point> path;
+    cv::Point current = goal;
+    while (current != start) {
+
+        info_interfaces::msg::Point point;
+        point.x = static_cast<float>(current.x);
+        point.y = static_cast<float>(current.y);
+        path.push_back(point);
+        current = came_from.at(current);
+    }
+    // 添加起始点
+    info_interfaces::msg::Point startPoint;
+    startPoint.x = static_cast<float>(start.x);
+    startPoint.y = static_cast<float>(start.y);
+    path.push_back(startPoint);
+    std::reverse(path.begin(), path.end());
+    return path;
 }
 
 std::vector<cv::Point> GameLogicNode::getNeighbors(const cv::Point& p) const {
@@ -268,21 +313,6 @@ double GameLogicNode::calculateDistance(const cv::Point& p1, const cv::Point& p2
     double dx = p1.x - p2.x;
     double dy = p1.y - p2.y;
     return std::sqrt(dx*dx + dy*dy);
-}
-
-void GameLogicNode::updateMap(const info_interfaces::msg::Map::SharedPtr msg) {
-    // 更新地图数据
-    setMapData(msg);
-}
-
-void GameLogicNode::updateArea(const info_interfaces::msg::Area::SharedPtr msg) {
-    // 更新区域数据
-    current_area_ = msg;
-}
-
-void GameLogicNode::updateRobot(const info_interfaces::msg::Robot::SharedPtr msg) {
-    // 更新机器人数据
-    setRobotData(msg);
 }
 
 } // namespace game_logic

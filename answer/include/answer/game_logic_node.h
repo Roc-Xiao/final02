@@ -33,10 +33,10 @@ class GameLogicNode : public rclcpp::Node {
 public:
     GameLogicNode();
 
-    // 添加 initialize 方法声明
-    void initialize(std::shared_ptr<rclcpp::Node> node);
-
 private:
+
+    std::unordered_map<cv::Point, std::vector<cv::Point>, PointHash> path_network_;
+
     void updateMap(const info_interfaces::msg::Map::SharedPtr msg);
     void updateArea(const info_interfaces::msg::Area::SharedPtr msg);
     void updateRobot(const info_interfaces::msg::Robot::SharedPtr msg);
@@ -77,12 +77,6 @@ private:
         const info_interfaces::msg::Map& map);
 
     void update(const info_interfaces::msg::Point& current_pos);
-    void setPath(const std::vector<info_interfaces::msg::Point>& path);
-
-    void setPosePublisher(rclcpp::Publisher<geometry_msgs::msg::Pose2D>::SharedPtr pub);
-    void setShootPublisher(rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub);
-    void setMapData(const info_interfaces::msg::Map::SharedPtr msg);
-    void setRobotData(const info_interfaces::msg::Robot::SharedPtr msg);
 
     info_interfaces::msg::Point getNearestEnemy();
 
@@ -104,7 +98,6 @@ private:
 
     // Other RobotController members
     std::shared_ptr<rclcpp::Node> node_;
-    rclcpp::Publisher<geometry_msgs::msg::Pose2D>::SharedPtr cmd_vel_pub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr shoot_pub_;
     rclcpp::Publisher<geometry_msgs::msg::Pose2D>::SharedPtr pose_pub_;
     std::vector<info_interfaces::msg::Point> path_;
@@ -127,6 +120,20 @@ private:
     static constexpr double VELOCITY_SCALE = 1.0;
     static constexpr double LINEAR_SPEED = 0.5;
     static constexpr double ATTACK_RANGE = 5.0;
+
+    void buildPathNetwork();
+
+    void addNodeToPathNetwork(int row, int col);
+
+    std::vector<info_interfaces::msg::Point> aStarSearch(
+        const info_interfaces::msg::Point& start,
+        const info_interfaces::msg::Point& goal,
+        const std::vector<uint8_t>& map_data);
+
+    std::vector<info_interfaces::msg::Point> reconstructPath(
+        const std::unordered_map<cv::Point, cv::Point, PointHash>& came_from,
+        const cv::Point& start,
+        const cv::Point& goal);
 };
 
 } // namespace game_logic
