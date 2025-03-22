@@ -97,7 +97,7 @@ private:
     std::vector<info_interfaces::msg::Point> current_path_;
 
     // Other RobotController members
-    std::shared_ptr<rclcpp::Node> node_;
+    // std::shared_ptr<rclcpp::Node> node_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr shoot_pub_;
     rclcpp::Publisher<geometry_msgs::msg::Pose2D>::SharedPtr pose_pub_;
     std::vector<info_interfaces::msg::Point> path_;

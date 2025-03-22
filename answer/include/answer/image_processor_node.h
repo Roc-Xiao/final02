@@ -52,14 +52,13 @@ namespace image_processor {
         void imageCallback(const sensor_msgs::msg::Image::SharedPtr msg);
 
         info_interfaces::msg::Map processMap(const cv::Mat& image);
-        std::vector<cv::Point> findColorArea(const cv::Mat& hsv, cv::Scalar lower, cv::Scalar upper, int min_x, int max_x, int min_y, int max_y);
-        std::pair<cv::Point, cv::Point> findTeleportPoints(const cv::Mat& hsv, cv::Scalar lower, cv::Scalar upper, int min_x, int max_x, int min_y, int max_y);
+        std::pair<cv::Point, cv::Point> findTeleportPoints(const cv::Mat& image, cv::Scalar lower, cv::Scalar upper, int min_x, int max_x, int min_y, int max_y);
 
         info_interfaces::msg::Area processAreas(const cv::Mat& image);
         info_interfaces::msg::Robot processRobots(const cv::Mat& image);
         info_interfaces::msg::Point transformAbstractPoint(const cv::Point& point);
 
-        std::vector<cv::Point> findContours(const cv::Mat& hsv, cv::Scalar lower, cv::Scalar upper, int min_x, int max_x, int min_y, int max_y);
+        std::vector<cv::Point> findContours(const cv::Mat& image, cv::Scalar lower, cv::Scalar upper, int min_x, int max_x, int min_y, int max_y);
 
         const cv::Scalar BACE_LOWER{165, 115, 145};
         const cv::Scalar BACE_UPPER{175, 125, 155};

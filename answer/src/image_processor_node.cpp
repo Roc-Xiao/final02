@@ -115,7 +115,6 @@ info_interfaces::msg::Map ImageProcessorNode::processMap(const cv::Mat& image) {
 
 info_interfaces::msg::Area ImageProcessorNode::processAreas(const cv::Mat& image) {
     info_interfaces::msg::Area area_msg;
-    cv::Mat hsv;
 
     // 确保输入图像不是灰度图
     if (image.channels() == 1) {
@@ -123,11 +122,9 @@ info_interfaces::msg::Area ImageProcessorNode::processAreas(const cv::Mat& image
         return area_msg;
     }
 
-    cv::cvtColor(image, hsv, cv::COLOR_BGR2HSV);
-
     // 查找基地位置
     cv::Mat base_mask;
-    cv::inRange(hsv, BACE_LOWER, BACE_UPPER, base_mask);
+    cv::inRange(image, BACE_LOWER, BACE_UPPER, base_mask);
     auto base_points = findContours(base_mask, BACE_LOWER, BACE_UPPER, 20, 20, 100, 100); // 添加颜色范围参数
     if (!base_points.empty()) {
         area_msg.base = transformAbstractPoint(base_points[0]);
@@ -135,7 +132,7 @@ info_interfaces::msg::Area ImageProcessorNode::processAreas(const cv::Mat& image
 
     // 查找补给站位置
     cv::Mat recover_mask;
-    cv::inRange(hsv, RECOVER_LOWER, RECOVER_UPPER, recover_mask);
+    cv::inRange(image, RECOVER_LOWER, RECOVER_UPPER, recover_mask);
     auto recover_points = findContours(recover_mask, RECOVER_LOWER, RECOVER_UPPER, 20, 20, 100, 100); // 添加颜色范围参数
     if (!recover_points.empty()) {
         area_msg.recover = transformAbstractPoint(recover_points[0]);
@@ -143,7 +140,7 @@ info_interfaces::msg::Area ImageProcessorNode::processAreas(const cv::Mat& image
 
     // 查找密码区域
     cv::Mat password_mask;
-    cv::inRange(hsv, PASSWORD_LOWER, PASSWORD_UPPER, password_mask);
+    cv::inRange(image, PASSWORD_LOWER, PASSWORD_UPPER, password_mask);
     auto password_points = findContours(password_mask, PASSWORD_LOWER, PASSWORD_UPPER, 20, 20, 100, 100); // 添加颜色范围参数
     if (!password_points.empty()) {
         area_msg.password = transformAbstractPoint(password_points[0]);
@@ -151,14 +148,14 @@ info_interfaces::msg::Area ImageProcessorNode::processAreas(const cv::Mat& image
 
     // 查找绿色传送点
     cv::Mat green_mask;
-    cv::inRange(hsv, GREEN_LOWER, GREEN_UPPER, green_mask);
+    cv::inRange(image, GREEN_LOWER, GREEN_UPPER, green_mask);
     auto green_teleport = findTeleportPoints(green_mask, GREEN_LOWER, GREEN_UPPER, 0, 0, 100, 100); // 添加颜色范围参数
     area_msg.green_in = transformAbstractPoint(green_teleport.first);
     area_msg.green_out = transformAbstractPoint(green_teleport.second);
 
     // 查找紫色传送点
     cv::Mat purple_mask;
-    cv::inRange(hsv, PURPLE_LOWER, PURPLE_UPPER, purple_mask);
+    cv::inRange(image, PURPLE_LOWER, PURPLE_UPPER, purple_mask);
     auto purple_teleport = findTeleportPoints(purple_mask, PURPLE_LOWER, PURPLE_UPPER, 0, 0, 100, 100); // 添加颜色范围参数
     area_msg.purple_in = transformAbstractPoint(purple_teleport.first);
     area_msg.purple_out = transformAbstractPoint(purple_teleport.second);
@@ -168,7 +165,6 @@ info_interfaces::msg::Area ImageProcessorNode::processAreas(const cv::Mat& image
 
 info_interfaces::msg::Robot ImageProcessorNode::processRobots(const cv::Mat& image) {
     info_interfaces::msg::Robot robot_msg;
-    cv::Mat hsv;
 
     // 确保输入图像不是灰度图
     if (image.channels() == 1) {
@@ -176,11 +172,9 @@ info_interfaces::msg::Robot ImageProcessorNode::processRobots(const cv::Mat& ima
         return robot_msg;
     }
 
-    cv::cvtColor(image, hsv, cv::COLOR_BGR2HSV);
-
     // 查找我方机器人
     cv::Mat our_robot_mask;
-    cv::inRange(hsv, ROBOT_LOWER, ROBOT_UPPER, our_robot_mask);
+    cv::inRange(image, ROBOT_LOWER, ROBOT_UPPER, our_robot_mask);
     auto our_robot = findContours(our_robot_mask, ROBOT_LOWER, ROBOT_UPPER, 20, 20, 100, 100); // 添加颜色范围参数
     if (!our_robot.empty()) {
         robot_msg.our_robot = transformAbstractPoint(our_robot[0]);
@@ -188,7 +182,7 @@ info_interfaces::msg::Robot ImageProcessorNode::processRobots(const cv::Mat& ima
 
     // 查找敌方机器人
     cv::Mat enemy_mask;
-    cv::inRange(hsv, ENEMY_LOWER, ENEMY_UPPER, enemy_mask);
+    cv::inRange(image, ENEMY_LOWER, ENEMY_UPPER, enemy_mask);
     auto enemy_robots = findContours(enemy_mask, ENEMY_LOWER, ENEMY_UPPER, 20, 20, 100, 100); // 添加颜色范围参数
     for (const auto& enemy : enemy_robots) {
         info_interfaces::msg::Point enemy_point = transformAbstractPoint(enemy);
@@ -198,9 +192,9 @@ info_interfaces::msg::Robot ImageProcessorNode::processRobots(const cv::Mat& ima
     return robot_msg;
 }
 
-std::vector<cv::Point> ImageProcessorNode::findContours(const cv::Mat& hsv, cv::Scalar lower, cv::Scalar upper, int min_x, int max_x, int min_y, int max_y) {
+std::vector<cv::Point> ImageProcessorNode::findContours(const cv::Mat& image, cv::Scalar lower, cv::Scalar upper, int min_x, int max_x, int min_y, int max_y) {
     cv::Mat mask;
-    cv::inRange(hsv, lower, upper, mask);
+    cv::inRange(image, lower, upper, mask);
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
@@ -215,8 +209,22 @@ std::vector<cv::Point> ImageProcessorNode::findContours(const cv::Mat& hsv, cv::
     return points;
 }
 
-std::pair<cv::Point, cv::Point> ImageProcessorNode::findTeleportPoints(const cv::Mat& hsv, cv::Scalar lower, cv::Scalar upper, int min_x, int max_x, int min_y, int max_y) {
-    std::vector<cv::Point> points = findContours(hsv, lower, upper, min_x, max_x, min_y, max_y);
+std::pair<cv::Point, cv::Point> ImageProcessorNode::findTeleportPoints(const cv::Mat& image, cv::Scalar lower, cv::Scalar upper, int min_x, int max_x, int min_y, int max_y) {
+    cv::Mat mask;
+    cv::inRange(image, lower, upper, mask);  // 直接在RGB图像上进行颜色匹配
+
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+    std::vector<cv::Point> points;
+    for (const auto& contour : contours) {
+        cv::Rect rect = cv::boundingRect(contour);
+        if (rect.x >= min_x && rect.x + rect.width <= max_x && rect.y >= min_y && rect.y + rect.height <= max_y) {
+            cv::Point center(rect.x + rect.width / 2, rect.y + rect.height / 2);
+            points.push_back(center);
+        }
+    }
+
     if (points.size() < 2) {
         return {{0, 0}, {0, 0}};
     }
