@@ -14,6 +14,8 @@
 #include <stack>
 #include <unordered_set>
 #include <memory>
+#include <thread>
+#include <mutex>
 
 namespace game_logic {
 
@@ -34,12 +36,34 @@ public:
     GameLogicNode();
 
 private:
+    // 添加线程和互斥锁
+    std::thread map_thread_, area_thread_, robot_thread_;
+    std::mutex map_mutex_, area_mutex_, robot_mutex_;
+
+    void updateRobot(const info_interfaces::msg::Robot::SharedPtr msg);
+
+    // 多线程声明
+    void updateMapThreaded(const info_interfaces::msg::Map::SharedPtr msg);
+    void updateAreaThreaded(const info_interfaces::msg::Area::SharedPtr msg);
+    void updateRobotThreaded(const info_interfaces::msg::Robot::SharedPtr msg);
+
+    rclcpp::TimerBase::SharedPtr timer_;
+
+    uint32_t rows_;
+    uint32_t cols_;
+
+    double position_tolerance_;  // 位置容差变量
+    double angle_tolerance_;     // 角度容差变量
+    double velocity_scale_;      // 速度缩放因子变量
+    int max_stuck_frames_;       // 最大阻塞帧数
+
+    info_interfaces::msg::Point last_pos_;  // 上一帧的位置
+    int stuck_frames_;                      // 阻塞帧数计数器
 
     std::unordered_map<cv::Point, std::vector<cv::Point>, PointHash> path_network_;
 
     void updateMap(const info_interfaces::msg::Map::SharedPtr msg);
     void updateArea(const info_interfaces::msg::Area::SharedPtr msg);
-    void updateRobot(const info_interfaces::msg::Robot::SharedPtr msg);
 
     bool canShoot(
         const info_interfaces::msg::Point& our_pos,
@@ -47,14 +71,6 @@ private:
         const info_interfaces::msg::Map& map);
 
     // 原PathPlanner类部分
-    uint32_t rows_;
-    uint32_t cols_;
-
-    std::vector<info_interfaces::msg::Point> findPath(
-        const info_interfaces::msg::Point& start,
-        const info_interfaces::msg::Point& goal,
-        const std::vector<uint8_t>& map_data);
-
     bool isValid(const cv::Point& p, const std::vector<uint8_t>& map_data) const;
     std::vector<cv::Point> getNeighbors(const cv::Point& p) const;
     double calculateHeuristic(const cv::Point& a, const cv::Point& b) const;
@@ -113,7 +129,6 @@ private:
     rclcpp::Subscription<info_interfaces::msg::Robot>::SharedPtr robot_subscription_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr password_pub_;
 
-    // 添加常量定义
     static constexpr double POSITION_TOLERANCE = 0.1;
     static constexpr double ANGLE_TOLERANCE = 0.1;
     static constexpr double ANGULAR_SPEED = 0.5;
@@ -134,6 +149,8 @@ private:
         const std::unordered_map<cv::Point, cv::Point, PointHash>& came_from,
         const cv::Point& start,
         const cv::Point& goal);
+
+    void timerCallback();
 };
 
 } // namespace game_logic

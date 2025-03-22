@@ -33,23 +33,11 @@ namespace image_processor {
 
     class ImageProcessorNode : public rclcpp::Node {
     public:
-        ImageProcessorNode(): Node("image_processor_node"), image_width_(0), image_height_(0) {
-            // 订阅图像话题
-            image_subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
-                topic_name::image_raw, 10, std::bind(&ImageProcessorNode::imageCallback, this, std::placeholders::_1));
-
-            // 初始化地图发布者
-            map_publisher_ = this->create_publisher<info_interfaces::msg::Map>(topic_name::map, 10);
-
-            // 初始化区域发布者
-            area_publisher_ = this->create_publisher<info_interfaces::msg::Area>(topic_name::area, 10);
-
-            // 初始化机器人发布者
-            robot_publisher_ = this->create_publisher<info_interfaces::msg::Robot>(topic_name::robot, 10);
-        }
+        ImageProcessorNode();
 
     private:
         void imageCallback(const sensor_msgs::msg::Image::SharedPtr msg);
+        void timerCallback();
 
         info_interfaces::msg::Map processMap(const cv::Mat& image);
         std::pair<cv::Point, cv::Point> findTeleportPoints(const cv::Mat& image, cv::Scalar lower, cv::Scalar upper, int min_x, int max_x, int min_y, int max_y);
@@ -75,7 +63,6 @@ namespace image_processor {
         const cv::Scalar PASSWORD_LOWER{90, 95, 250};
         const cv::Scalar PASSWORD_UPPER{100, 105, 255};
 
-        cv::Mat preprocess(const cv::Mat& image);
         cv::Mat morphologyProcess(const cv::Mat& image);
 
         rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_subscription_;
@@ -85,6 +72,8 @@ namespace image_processor {
 
         uint32_t image_width_;
         uint32_t image_height_;
+        cv::Mat latest_image_;
+        rclcpp::TimerBase::SharedPtr timer_;
     };
 
 } // namespace image_processor

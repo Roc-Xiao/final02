@@ -1,10 +1,17 @@
-#include "answer/game_logic_node.h"  // 确保包含了 PathPlanner 的定义
+#include "answer/game_logic_node.h"
+#include <chrono>
+#include <thread>
+#include <mutex>
 
 namespace game_logic {
     GameLogicNode::GameLogicNode()
         : Node("game_logic_node"),
           rows_(256),
-          cols_(128)
+          cols_(128),
+          position_tolerance_(POSITION_TOLERANCE), // 位置容差变量
+          angle_tolerance_(ANGLE_TOLERANCE), // 角度容差变量
+          velocity_scale_(VELOCITY_SCALE), // 速度缩放因子变量
+          max_stuck_frames_(5) // 最大阻塞帧数
     {
         shoot_pub_ = this->create_publisher<std_msgs::msg::String>(topic_name::shoot, 10);
         pose_pub_ = this->create_publisher<geometry_msgs::msg::Pose2D>(topic_name::pose, 10);
@@ -13,29 +20,46 @@ namespace game_logic {
         map_data_ = std::make_shared<info_interfaces::msg::Map>();
         robot_data_ = std::make_shared<info_interfaces::msg::Robot>();
         current_area_ = std::make_shared<info_interfaces::msg::Area>();
+
+        // 创建定时器，每500毫秒触发一次
+        timer_ = this->create_wall_timer(
+            std::chrono::milliseconds(500), std::bind(&GameLogicNode::timerCallback, this));
+
         // 订阅地图话题
         map_subscription_ = this->create_subscription<info_interfaces::msg::Map>(
-            topic_name::map, 10, std::bind(&GameLogicNode::updateMap, this, std::placeholders::_1));
+            topic_name::map, 100, std::bind(&GameLogicNode::updateMapThreaded, this, std::placeholders::_1));
 
         // 订阅区域话题
         area_subscription_ = this->create_subscription<info_interfaces::msg::Area>(
-            topic_name::area, 10, std::bind(&GameLogicNode::updateArea, this, std::placeholders::_1));
+            topic_name::area, 100, std::bind(&GameLogicNode::updateAreaThreaded, this, std::placeholders::_1));
 
         // 订阅机器人话题
         robot_subscription_ = this->create_subscription<info_interfaces::msg::Robot>(
-            topic_name::robot, 10, std::bind(&GameLogicNode::updateRobot, this, std::placeholders::_1));
+            topic_name::robot, 100, std::bind(&GameLogicNode::updateRobotThreaded, this, std::placeholders::_1));
+    }
+
+    void GameLogicNode::timerCallback() {
+        // 每500毫秒执行一次更新逻辑
+        if (robot_data_) {
+            update(robot_data_->our_robot);
+        }
+    }
+
+    void GameLogicNode::updateMapThreaded(const info_interfaces::msg::Map::SharedPtr msg) {
+        std::thread([this, msg]() {
+            std::lock_guard<std::mutex> lock(map_mutex_);
+            updateMap(msg);
+        }).detach();
     }
 
     void GameLogicNode::updateMap(const info_interfaces::msg::Map::SharedPtr msg) {
         RCLCPP_INFO(this->get_logger(), "Received map message with grid size: %d x %d", msg->grid_width,
                     msg->grid_height);
         map_data_ = msg;
-        // update init path network
         // 根据地图数据构建可通行路径网络
         buildPathNetwork();
     }
 
-    // 添加 buildPathNetwork 方法实现
     void GameLogicNode::buildPathNetwork() {
         // 使用A*算法构建可通行路径网络
         path_network_.clear(); // 清空之前的路径网络
@@ -52,7 +76,7 @@ namespace game_logic {
     }
 
     void GameLogicNode::addNodeToPathNetwork(int row, int col) {
-        // 添加节点到路径网络的具体实现
+        // 节点到路径网络的具体实现
         // 使用邻接表表示路径网络
         cv::Point node(col, row);
 
@@ -70,14 +94,27 @@ namespace game_logic {
         }
     }
 
+    void GameLogicNode::updateAreaThreaded(const info_interfaces::msg::Area::SharedPtr msg) {
+        std::thread([this, msg]() {
+            std::lock_guard<std::mutex> lock(area_mutex_);
+            updateArea(msg);
+        }).detach();
+    }
+
     void GameLogicNode::updateArea(const info_interfaces::msg::Area::SharedPtr msg) {
         RCLCPP_INFO(this->get_logger(), "Received area message with base position: (%u, %u)", msg->base.x, msg->base.y);
         current_area_ = msg;
     }
 
+    void GameLogicNode::updateRobotThreaded(const info_interfaces::msg::Robot::SharedPtr msg) {
+        std::thread([this, msg]() {
+            std::lock_guard<std::mutex> lock(robot_mutex_);
+            updateRobot(msg);
+        }).detach();
+    }
+
     void GameLogicNode::updateRobot(const info_interfaces::msg::Robot::SharedPtr msg) {
-        RCLCPP_INFO(this->get_logger(), "Received robot message with our robot position: (%u, %u)", msg->our_robot.x,
-                    msg->our_robot.y);
+        RCLCPP_INFO(this->get_logger(), "Received robot message with our robot position: (%u, %u)", msg->our_robot.x, msg->our_robot.y);
         robot_data_ = msg;
     }
 
@@ -160,38 +197,73 @@ namespace game_logic {
     }
 
     void GameLogicNode::update(const info_interfaces::msg::Point &current_pos) {
-        if (current_path_.empty()) {
-            // 修正 calculatePath() 方法调用，提供正确参数
-            current_path_ = calculatePath(robot_data_->our_robot, getNearestEnemy(current_pos));
+        // 更新当前机器人位置
+        robot_data_->our_robot = current_pos;
+
+        // 获取最近的敌人
+        info_interfaces::msg::Point nearest_enemy = getNearestEnemy(current_pos);
+
+        if (!nearest_enemy.x && !nearest_enemy.y) {
+            RCLCPP_INFO(this->get_logger(), "No enemy found, waiting for new data.");
+            return;
         }
 
-        if (!current_path_.empty()) {
-            auto target = current_path_[current_path_index_];
-            auto cmd_vel = calculateCommand(current_pos, target);
-            RCLCPP_INFO(this->get_logger(),"In Publisher！");
-            publishPose(cmd_vel);
-            if ((current_pos.x > target.x ? (current_pos.x - target.x) : (target.x - current_pos.x)) <
-                POSITION_TOLERANCE &&
-                (current_pos.y > target.y ? (current_pos.y - target.y) : (target.y - current_pos.y)) <
-                POSITION_TOLERANCE) {
-                current_path_index_++;
-                if (static_cast<std::size_t>(current_path_index_) >= current_path_.size()) {
-                    current_path_.clear();
-                    current_path_index_ = 0;
-                }
-            }
-        }
-
-        if (canShoot(robot_data_->our_robot, getNearestEnemy(current_pos), *map_data_)) {
-            // 解引用 map_data_
+        // 计算射击角度并判断是否可以射击
+        bool can_shoot = canShoot(robot_data_->our_robot, nearest_enemy, *map_data_);
+        if (can_shoot) {
             publishShoot(true);
+        } else {
+            publishShoot(false);
+        }
+
+        // 如果存在敌人，则计算追击路径
+        if (nearest_enemy.x || nearest_enemy.y) {
+            // 修正 calculatePath() 方法调用，提供正确参数
+            current_path_ = calculatePath(robot_data_->our_robot, nearest_enemy);
+
+            if (!current_path_.empty()) {
+                auto target = current_path_[current_path_index_];
+                auto cmd_vel = calculateCommand(current_pos, target);
+
+                // 检查是否到达目标点
+                if ((current_pos.x > target.x ? (current_pos.x - target.x) : (target.x - current_pos.x)) <
+                    position_tolerance_ &&
+                    (current_pos.y > target.y ? (current_pos.y - target.y) : (target.y - current_pos.y)) <
+                    position_tolerance_) {
+                    current_path_index_++;
+                    if (static_cast<std::size_t>(current_path_index_) >= current_path_.size()) {
+                        current_path_.clear();
+                        current_path_index_ = 0;
+                    }
+                } else {
+                    // 更新位置变化监测
+                    if (last_pos_ == current_pos) {
+                        stuck_frames_++;
+                        if (stuck_frames_ >= max_stuck_frames_) {
+                            // 切换移动方向
+                            RCLCPP_WARN(this->get_logger(), "Stuck for %d frames, switching direction", stuck_frames_);
+                            current_path_index_ = (current_path_index_ + 1) % current_path_.size();
+                            stuck_frames_ = 0;
+                        }
+                    } else {
+                        stuck_frames_ = 0;
+                    }
+                    last_pos_ = current_pos;
+                }
+
+                // 平滑移动控制
+                cmd_vel.x *= velocity_scale_;
+                cmd_vel.theta *= velocity_scale_;
+
+                publishPose(cmd_vel);
+            }
         }
     }
 
     std::vector<info_interfaces::msg::Point> GameLogicNode::calculatePath(
         const info_interfaces::msg::Point &start,
         const info_interfaces::msg::Point &goal) {
-        return findPath(start, goal, map_data_->mat);
+        return aStarSearch(start, goal, map_data_->mat);
     }
 
     geometry_msgs::msg::Pose2D GameLogicNode::calculateCommand(
@@ -200,6 +272,11 @@ namespace game_logic {
         auto move_cmd = moveToTarget(current, target);
         auto rotate_cmd = rotateTurret(current, target);
         move_cmd.theta += rotate_cmd.theta;
+
+        // 平滑移动控制
+        move_cmd.x *= velocity_scale_;
+        move_cmd.theta *= velocity_scale_;
+
         return move_cmd;
     }
 
@@ -229,20 +306,14 @@ namespace game_logic {
         return nearest_enemy;
     }
 
-    std::vector<info_interfaces::msg::Point> GameLogicNode::findPath(
-        const info_interfaces::msg::Point &start,
-        const info_interfaces::msg::Point &goal,
-        const std::vector<uint8_t> &map_data) {
-        return aStarSearch(start, goal, map_data);
-    }
-
+    // 使用A*算法搜索最优路径
     std::vector<info_interfaces::msg::Point> GameLogicNode::aStarSearch(
         const info_interfaces::msg::Point &start,
         const info_interfaces::msg::Point &goal,
         const std::vector<uint8_t> &map_data) {
-        // A*算法的具体实现
+
         std::unordered_set<cv::Point, PointHash> closed_set;
-        std::priority_queue<std::pair<double, cv::Point>, std::vector<std::pair<double, cv::Point> >, PointCompare>
+        std::priority_queue<std::pair<double, cv::Point>, std::vector<std::pair<double, cv::Point>>, PointCompare>
                 open_set;
 
         std::unordered_map<cv::Point, cv::Point, PointHash> came_from;
