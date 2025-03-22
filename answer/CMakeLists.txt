@@ -5,13 +5,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# find dependencies
-message(STATUS "CMAKE_PREFIX_PATH: $ENV{CMAKE_PREFIX_PATH}")
-message(STATUS "Looking for info_interfaces...")
 find_package(ament_cmake REQUIRED)
-# uncomment the following section in order to fill in
-# further dependencies manually.
-# find_package(<dependency> REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -20,39 +14,38 @@ find_package(info_interfaces REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(example_interfaces REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
 
-# 明确设置包含目录
 include_directories(
   include
 )
 
-# 添加可执行文件
-add_executable(game_node
-    src/main.cpp
-    src/game_state.cpp
-    src/image_processor.cpp
-    src/path_planner.cpp
-    src/robot_controller.cpp
-)
-# 链接库的依赖
-ament_target_dependencies(game_node
+add_executable(image_processor_node src/image_processor_node.cpp)
+
+add_executable(game_logic_node src/game_logic_node.cpp)
+
+ament_target_dependencies(image_processor_node
   rclcpp
+  sensor_msgs
+  cv_bridge
+  OpenCV
+  info_interfaces
+)
+
+ament_target_dependencies(game_logic_node
+  rclcpp
+  info_interfaces
   std_msgs
   geometry_msgs
-  info_interfaces
-  OpenCV
-  cv_bridge
-  sensor_msgs
   example_interfaces
 )
 
-# 安装目标
 install(TARGETS
-  game_node
+  image_processor_node
+  game_logic_node
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
-# 添加对launch文件的支持
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME})
 
